@@ -2,7 +2,7 @@ FROM bitwalker/alpine-elixir:1.9.0
 RUN apk add make gcc libc-dev inotify-tools
 WORKDIR /app
 
-ENV MIX_ENV dev
+ENV MIX_ENV test
 
 COPY mix.* ./
 COPY .formatter.exs /app/
@@ -14,4 +14,4 @@ COPY config /app/config
 
 RUN mix compile
 
-ENTRYPOINT mix test.watch --stale
+ENTRYPOINT mix test.watch --stale --only wip

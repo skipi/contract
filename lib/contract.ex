@@ -1,209 +1,133 @@
 defmodule Contract do
-  @type validate_params_t :: %{required(atom()) => any()}
-  @type error :: {:error, any()}
-  @type validate_params :: validate_params_t | {:ok, validate_params_t} | error
-  @type validate_result :: {:ok, %{required(atom()) => any()}} | error
+  use Ecto.Schema
 
-  def plug({:ok, params}, plugs), do: plug(params, plugs)
-  def plug({:error, _} = error, _), do: error
+  @primary_key false
+  embedded_schema do
+    field(:__contexts, {:array, Contract.Context}, default: [])
+    # field(:__casts, {:array, :term}, default: [])
+    # field(:__cast_errors, {:array, :term}, default: :not_set)
+    # field(:__casted?, :boolean, default: false)
 
-  def plug(params, plugs) do
-    plugs
-    |> Enum.reduce({:ok, params}, fn
-      {plug_key, plug_fun}, {:ok, params} when is_function(plug_fun, 1) ->
-        params
-        |> Map.get(plug_key, :undefined)
-        |> case do
-          value ->
-            plug_fun.(value)
-            |> case do
-              {:ok, value} -> {:ok, params |> Map.put(plug_key, value)}
-              other -> other
-            end
-        end
-
-      {plug_key, plug_fun}, {:ok, params} when is_function(plug_fun, 2) ->
-        params
-        |> Map.get(plug_key, :undefined)
-        |> case do
-          value ->
-            plug_fun.(value, params)
-            |> case do
-              {:ok, value} -> {:ok, params |> Map.put(plug_key, value)}
-              other -> other
-            end
-        end
-
-      {_plug_key, _plug_fun}, {:error, _} = error ->
-        error
-    end)
+    # field(:__validations, {:array, :term}, default: [])
+    # field(:__validation_errors, {:array, :term}, default: :not_set)
+    # field(:__validated?, :boolean, default: false)
   end
 
-  def default({:ok, params}, defaults) do
-    default(params, defaults)
-  end
+  def fulfill(contract, data) do
+    {_contract, output} =
+      contract.__contexts
+      |> Enum.reduce({contract, data}, fn context, {contract, data} ->
+        context =
+          context
+          |> Contract.Context.run(data)
 
-  def default({:error, _} = error, _) do
-    error
-  end
-
-  def default(params, defaults) do
-    defaults
-    |> Enum.reduce(params, fn {key, value}, params ->
-      params
-      |> Map.get(key)
-      |> case do
-        nil -> params |> Map.put(key, value)
-        _ -> params
-      end
-    end)
-  end
-
-  def cast({:ok, params}, types) do
-    cast(params, types)
-  end
-
-  def cast({:error, _} = error, _) do
-    error
-  end
-
-  def cast(params, types) do
-    type_keys = types |> Map.keys() |> Enum.map(&"#{&1}")
-
-    initial =
-      params
-      |> Enum.map(fn
-        {key, _value} when is_atom(key) ->
-          {key, nil}
-
-        {key, _value} when is_bitstring(key) ->
-          key
-          |> string_to_atom
-          |> case do
-            nil -> nil
-            key -> {key, nil}
-          end
+        {put_context(contract, context), context.__output}
       end)
-      |> Enum.filter(fn
+      |> IO.inspect()
+  end
+
+  def add_cast(contract, key, cast) do
+    context =
+      contract
+      |> current_context
+      |> Contract.Context.add_cast(key, cast)
+
+    contract
+    |> put_context(context)
+  end
+
+  def add_validation(contract, key, validation) do
+    context =
+      contract
+      |> current_context
+      |> Contract.Context.add_validation(key, validation)
+
+    contract
+    |> put_context(context)
+  end
+
+  def put_context(%{__contexts: []} = contract, context) do
+    contract
+    |> set_contexts([context])
+  end
+
+  def put_context(contract, %{id: context_id} = context) do
+    contexts =
+      contract.__contexts
+      |> Enum.find(&(&1.id == context_id))
+      |> case do
         nil ->
-          nil
+          contract.__contexts ++ [context]
 
-        {key, _value} = param ->
-          ("#{key}" in type_keys)
-          |> case do
-            true -> param
-            _ -> nil
-          end
-      end)
-      |> Enum.into(%{})
-
-    {initial, types}
-    |> Ecto.Changeset.cast(params, Map.keys(types))
-    |> resolve_changeset
-  end
-
-  @spec validate(validate_params, Map.t()) :: validate_result
-  def validate({:ok, params}, validations), do: validate(params, validations)
-  def validate({:error, _} = error, _), do: error
-
-  def validate(params, validations) do
-    param_keys = for key <- params |> Map.keys(), do: {key, :any}, into: %{}
-    validation_keys = for key <- validations |> Map.keys(), do: {key, :any}, into: %{}
-
-    keys = Map.merge(param_keys, validation_keys)
-
-    initial =
-      params
-      |> Enum.map(fn
-        {key, _value} -> {key, nil}
-      end)
-      |> Enum.into(%{})
-
-    changeset =
-      {initial, keys}
-      |> Ecto.Changeset.cast(params, keys |> Map.keys())
-
-    validations
-    |> Enum.reduce(changeset, &validate_changeset/2)
-    |> resolve_changeset
-  end
-
-  defp resolve_changeset(changeset) do
-    changeset
-    |> case do
-      %{valid?: true} = changeset ->
-        {:ok, changeset |> Ecto.Changeset.apply_changes()}
-
-      errors ->
-        {:error, errors |> resolve}
-    end
-  end
-
-  defp resolve(changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-      Enum.reduce(opts, msg, fn {key, value}, acc ->
-        String.replace(acc, "%{#{key}}", to_string(value))
-      end)
-    end)
-  end
-
-  defp validate_changeset({key, key_validations}, changeset) when is_list(key_validations) do
-    key_validations
-    |> Enum.reduce(changeset, fn validation, changeset ->
-      changeset
-      |> do_validate(key, validation)
-    end)
-  end
-
-  defp validate_changeset({key, key_validation}, changeset) do
-    changeset
-    |> do_validate(key, key_validation)
-  end
-
-  defp do_validate(changeset, key, :required) do
-    changeset
-    |> Ecto.Changeset.validate_required(key)
-  end
-
-  defp do_validate(changeset, key, :confirmation) do
-    changeset
-    |> Ecto.Changeset.validate_confirmation(key, required: true)
-  end
-
-  defp do_validate(changeset, key, fun) when is_function(fun, 1) do
-    changeset
-    |> Ecto.Changeset.validate_change(key, fn _, value ->
-      fun.(value)
-      |> case do
-        true -> []
-        false -> [{key, "is invalid"}]
-        nil -> []
-        error -> [{key, error}]
+        _context ->
+          contract.__contexts
+          |> Enum.map(fn
+            %{id: ^context_id} -> context
+            context -> context
+          end)
       end
+
+    contract
+    |> set_contexts(contexts)
+  end
+
+  def set_contexts(contract, contexts) do
+    %{contract | __contexts: contexts}
+  end
+
+  def set_input(contract, input) do
+    contexts =
+      contract
+      |> current_context
+      |> Contract.Context.set_input(input)
+
+    contract
+    |> set_contexts(contexts)
+  end
+
+  def current_context(%{__contexts: []}) do
+    Contract.Context.new()
+  end
+
+  def current_context(%{__contexts: contexts}) do
+    contexts
+    |> Enum.reverse()
+    |> Enum.find(fn context ->
+      nil
     end)
   end
 
-  defp do_validate(changeset, key, fun) when is_function(fun, 2) do
-    changeset
-    |> Ecto.Changeset.validate_change(key, fn _, value ->
-      fun.(value, Ecto.Changeset.apply_changes(changeset))
-      |> case do
-        true -> []
-        false -> [{key, "is invalid"}]
-        nil -> []
-        error -> [{key, error}]
-      end
-    end)
-  end
+  # def add_cast(contract, key, cast) do
+  #   %{contract | __casts: [{key, cast} | contract.__casts]}
+  # end
 
-  defp do_validate(changeset, _, _) do
-    changeset
-  end
+  # def add_validation(contract, key, validation) do
+  #   %{contract | __validations: [{key, validation} | contract.__validations]}
+  # end
 
-  defp string_to_atom(value) do
-    value
-    |> String.to_existing_atom()
-  rescue
-    _ -> nil
-  end
+  # def set_input(contract, input) do
+  #   %{contract | __input: input}
+  # end
+
+  # def set_cast_output(contract, casted_output) do
+  #   %{contract | __cast_output: casted_output}
+  # end
+
+  # def set_cast_errors(contract, cast_errors) do
+  #   %{contract | __cast_errors: cast_errors}
+  #   |> set_cast_output(:error)
+  # end
+
+  # def apply_cast(contract) do
+  #   Contract.Cast.run(contract)
+  # end
+
+  # def apply_validation(contract) do
+  #   Contract.Validate.run(contract)
+  # end
+
+  # def casts(contract) do
+  #   contract.__casts
+  #   |> Enum.into(%{})
+  # end
 end

@@ -1,258 +1,146 @@
 defmodule ContractTest do
   use ExUnit.Case
+
   doctest Contract
+  import Contract
 
-  test "cast/2" do
-    params = %{"foo" => "bar", "bar" => 2, "test" => [1, 2, 3, 4]}
-
-    assert {:ok, _} =
-             params |> Contract.cast(%{foo: :string, bar: :integer, test: {:array, :integer}})
-
-    assert {:error, _} = params |> Contract.cast(%{bar: :string})
-  end
-
-  test "cast/2 removes unknown parameters" do
-    params = %{"foo" => "Bar", "bar" => "baz", "test" => 1}
-
-    assert {:ok, casted_params} = params |> Contract.cast(%{foo: :string})
-
-    assert casted_params == %{foo: "Bar"}
-
-    params = %{foo: "Bar", bar: "baz", test: 1}
-    assert {:ok, casted_params} = params |> Contract.cast(%{foo: :string})
-
-    assert casted_params == %{foo: "Bar"}
-  end
-
-  test "cast/2 with unknown atom string" do
-    params = %{"some_non_existent_atom" => "bar", "bar" => 2, "test" => [1, 2, 3, 4]}
-
-    assert {:ok, %{bar: _, test: _}} =
-             params |> Contract.cast(%{foo: :string, bar: :integer, test: {:array, :integer}})
-
-    assert {:error, _} = params |> Contract.cast(%{bar: :string})
-  end
-
-  test "cast/2 with atoms" do
-    params = %{foo: "bar", test: [1, 2, 3]}
-
-    assert {:ok, %{foo: _, test: _}} =
-             params |> Contract.cast(%{foo: :string, test: {:array, :integer}})
-
-    assert {:error, _} = params |> Contract.cast(%{test: :string})
-  end
-
-  test "cast/2 with some fields null" do
-    params = %{"foo" => "bar", "test" => "", "bar" => nil}
-
-    assert {:ok, %{foo: _, test: _, bar: _}} =
-    params |> Contract.cast(%{foo: :string, test: :string, bar: :integer})
-  end
-
-  test "plug/2" do
-    params = %{some: "parameter", other: 123, test: [1, 2, 3, 4]}
-
-    result =
-      params
-      |> Contract.plug(
-        some: fn value ->
-          {:ok, "#{value} - test"}
-        end,
-        other: fn value ->
-          {:ok, value + 1111}
-        end,
-        test: fn value ->
-          {:ok, value ++ [5, 6, 7, 8]}
-        end
-      )
-
-    assert {:ok, %{some: "parameter - test", other: 1234, test: [1, 2, 3, 4, 5, 6, 7, 8]}} ==
-             result
-  end
-
-  test "plug/2 accepting 2 arguments for function" do
-    params = %{some: "parameter", other: 123}
-
-    result =
-      params
-      |> Contract.plug(
-        some: fn value, params ->
-          {:ok, "#{value} - #{params.other}"}
-        end
-      )
-
-    assert {:ok, %{some: "parameter - 123", other: 123}} == result
-  end
-
-  test "plug/2 with failed plug" do
-    params = %{some: "parameter", other: 123, test: [1, 2, 3, 4]}
-
-    result =
-      params
-      |> Contract.plug(
-        some: fn _value ->
-          {:error, :is_invalid}
-        end,
-        other: fn value ->
-          {:ok, value + 1111}
-        end,
-        test: fn _value ->
-          {:ok, :is_also_invalid}
-        end
-      )
-
-    assert {:error, :is_invalid} == result
-  end
-
-  test "plug/2 without parameter present" do
-    params = %{}
-
-    result =
-      params
-      |> Contract.plug(%{
-        test: fn _ ->
-          {:ok, "test"}
-        end
-      })
-
-    assert {:ok, %{test: "test"}} == result
-    params = %{test: "value"}
-
-    result =
-      params
-      |> Contract.plug(%{
-        test1: fn _, params ->
-          {:ok, params.test}
-        end
-      })
-
-    assert {:ok, %{test1: "value", test: "value"}} == result
-  end
-
-  test "validate/2 confirmation" do
-    params = %{password: "testtest", password_confirmation: "testtest"}
-
-    assert {:ok, _} = params |> Contract.validate(%{password: :confirmation})
-
-    assert {:error, _} =
-             %{params | password_confirmation: nil}
-             |> Contract.validate(%{password: :confirmation})
-
-    assert {:error, _} =
-             %{password: "Test"}
-             |> Contract.validate(%{password: :confirmation})
-  end
-
-  test "validate/2 with passing changeset" do
-    validator = fn _password, changes ->
-      changes
-      |> Map.get(:password)
+  @tag :wip
+  test "test" do
+    id_validator = fn id ->
+      id
       |> case do
-        nil ->
-          true
-
-        password ->
-          password == Map.get(changes, :password_confirmation)
+        id when 1 < id or id < 10 -> {:ok, id}
+        _ -> {:error, :not_in_range}
       end
     end
 
-    params = %{}
-
-    assert {:ok, _} =
-             params
-             |> Contract.validate(%{
-               password: &validator.(&1, &2)
-             })
-
-    params = %{password: "testtest"}
-
-    assert {:error, _} =
-             params
-             |> Contract.validate(%{
-               password: &validator.(&1, &2)
-             })
-
-    params = %{password: "testtest", password_confirmation: "test"}
-
-    assert {:error, _} =
-             params
-             |> Contract.validate(%{
-               password: &validator.(&1, &2)
-             })
-
-    params = %{password: "testtest", password_confirmation: "testtest"}
-
-    assert {:ok, _} =
-             params
-             |> Contract.validate(%{
-               password: &validator.(&1, &2)
-             })
-  end
-
-  test "validate/2 with atom keys" do
-    params = %{foo: 2}
-
-    assert {:ok, _} = params |> Contract.validate(%{foo: :required})
-    assert {:error, _} = params |> Contract.validate(%{bar: :required})
-
-    assert {:ok, _} =
-             params
-             |> Contract.validate(%{
-               foo: fn value ->
-                 (value == 2)
-                 |> case do
-                   true -> nil
-                   _ -> "invalid value"
-                 end
-               end
-             })
-
-    assert {:error, _} =
-             params
-             |> Contract.validate(%{
-               foo: fn value ->
-                 (value > 2)
-                 |> case do
-                   true -> nil
-                   _ -> "must be greater than 2"
-                 end
-               end
-             })
-
-    assert {:error, _} =
-             params
-             |> Contract.validate(%{
-               foo: fn value ->
-                 value > 2
-               end
-             })
-
-    assert {:ok, _} =
-             params
-             |> Contract.validate(%{
-               foo: fn value ->
-                 value >= 2
-               end
-             })
-  end
-
-  test "cast and validate" do
-    params = %{
-      "foo" => 1,
-      "bar" => nil,
-      "baz" => ""
-    }
-
-    {:ok, result} = params
-    |> Contract.cast(%{
-      foo: :integer,
-      bar: :string,
-      baz: :string
+    %Contract{}
+    |> Contract.add_cast(:id, :integer)
+    |> Contract.add_cast(:name, :string)
+    |> Contract.add_validation(:id, &id_validator.(&1))
+    |> Contract.add_validation(:name, {:length_min, 10})
+    |> Contract.add_validation(:name, {:length_max, 10})
+    |> Contract.add_validation(:id, :required)
+    |> Contract.add_validation(:name, :required)
+    |> Contract.fulfill(%{
+      "id" => "1",
+      "name" => "Stefan"
     })
-    |> Contract.validate(%{
-      foo: :required
-    })
-
-    assert %{foo: _, bar: _, baz: _} = result
   end
+
+  describe "methods" do
+    setup do
+      [
+        contract: %Contract{}
+      ]
+    end
+
+    test "add cast", %{contract: contract} do
+      contract =
+        contract
+        |> Contract.add_cast(:id, :integer)
+        |> Contract.add_cast(:name, :integer)
+
+      context =
+        contract
+        |> Contract.current_context()
+
+      casts = context.__cast_rules
+
+      assert casts == %{id: :integer, name: :integer}
+    end
+
+    test "add validation", %{contract: contract} do
+      contract =
+        contract
+        |> Contract.add_validation(:id, :required)
+        |> Contract.add_validation(:name, :required)
+
+      context =
+        contract
+        |> Contract.current_context()
+
+      validations = context.__validation_rules
+
+      assert validations == [id: :required, name: :required]
+    end
+
+    test "current context", %{contract: contract} do
+      contract =
+        contract
+        |> Contract.add_cast(:id, :integer)
+        |> Contract.add_validation(:id, :required)
+
+      assert length(contract.__contexts) == 1
+    end
+
+    test "fulfill", %{contract: contract} do
+      atom_data = %{id: 1}
+      string_data = %{"id" => 1}
+
+      contract =
+        contract
+        |> Contract.add_cast(:id, :integer)
+        |> Contract.add_validation(:id, :required)
+
+      assert {:ok, %{id: 1}} = Contract.fulfill(contract, atom_data)
+      assert {:ok, %{id: 1}} = Contract.fulfill(contract, string_data)
+    end
+  end
+
+  # describe "casting" do
+  #   setup _context do
+  #     contract =
+  #       Contract.cast(%{
+  #         id: :integer,
+  #         name: :string
+  #       })
+  #       |> Contract.validate(%{
+  #         id: fn id ->
+  #           cond do
+  #             id > 1 -> {:ok, id}
+  #             id < 10 -> {:ok, id}
+  #             true -> {:error, :wrong_range}
+  #           end
+  #         end,
+  #         name: [length_min: 10, length_max: 20]
+  #       })
+
+  #     %{
+  #       contract: contract
+  #     }
+  #   end
+
+  #   test "basic functionality", context do
+  #     res =
+  #       context.contract
+  #       |> Contract.fulfill(%{
+  #         id: 1,
+  #         name: "Zbyszek"
+  #       })
+  #       |> Contract.agreement()
+
+  #     assert {:ok, contract} = res
+  #     assert contract = %{id: 1, name: "Zbyszek"}
+  #   end
+
+  #   test "error handling", context do
+  #     res =
+  #       context.contract
+  #       |> Contract.fulfill(%{
+  #         id: "Test"
+  #       })
+  #       |> Contract.aggreement()
+
+  #     assert {:error, contract} = res
+
+  #     errors = Contract.errors(contract)
+
+  #     assert errors = %{
+  #              cast: %{
+  #                id: :invalid
+  #              }
+  #            }
+  #   end
+  # end
 end
