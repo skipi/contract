@@ -1,0 +1,20 @@
+version: "3.7"
+services:
+  app:
+    container_name: contract-app
+    build: ./
+    volumes:
+      - ./config:/app/config
+      - ./test:/app/test
+      - ./lib:/app/lib
+      - type: volume
+        source: app_build
+        target: /app/_build
+      - type: volume
+        source: app_deps
+        target: /app/deps
+    restart: always
+volumes:
+  app:
+  app_build:
+  app_deps:

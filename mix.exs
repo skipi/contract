@@ -34,8 +34,9 @@ defmodule Contract.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:ecto, "~> 3.0"},
-      {:ex_doc, ">= 0.0.0", only: :dev}
+      {:ecto, "~> 3.3.0"},
+      {:ex_doc, ">= 0.0.0", only: :dev},
+      {:mix_test_watch, "~> 1.0.2", only: [:dev, :test]}
     ]
   end
 end
