@@ -12,7 +12,9 @@ blocks:
           commands:
             - sem-version elixir 1.9
             - checkout
+            - cache restore
             - mix deps.get
+            - cache store
             - mix test
       env_vars:
         - name: MIX_ENV
